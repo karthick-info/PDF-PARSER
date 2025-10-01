@@ -11,7 +11,7 @@ import re
 from collections import defaultdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
-import fitz  # PyMuPDF
+import fitz # PyMuPDF
 import pandas as pd
 
 # --- CONFIGURATION ---
@@ -65,7 +65,7 @@ def parse_toc_entries(toc_lines: List[Tuple[int, str]], doc_title: str) -> List[
     for page_num, line in toc_lines:
         entry = parse_toc_entry(line, doc_title)
         if entry:
-            entry['page'] = page_num + 1  # Convert to 1-based page numbering
+            entry['page'] = page_num + 1
             toc_entries.append(entry)
     
     print(f"Found {len(toc_entries)} entries in TOC.")
@@ -186,7 +186,7 @@ def generate_validation_report(
     # Handle empty TOC scenario
     if not toc_entries:
         print("⚠️ No Table of Contents entries found. Creating empty validation report.")
-        report_path = os.path.join(OUTPUT_DIR, "validation_report_fixed.xlsx")
+        report_path = os.path.join(OUTPUT_DIR, "validation_report.xlsx")
         
         # Create empty report
         with pd.ExcelWriter(report_path, engine="openpyxl") as writer:
@@ -243,7 +243,7 @@ def generate_validation_report(
             ])
     
     # Save to Excel
-    report_path = os.path.join(OUTPUT_DIR, "validation_report_fixed.xlsx")
+    report_path = os.path.join(OUTPUT_DIR, "validation_report.xlsx")
     with pd.ExcelWriter(report_path, engine="openpyxl") as writer:
         pd.DataFrame(report_data[1:], columns=report_data[0]).to_excel(
             writer, sheet_name="Summary", index=False
@@ -261,6 +261,28 @@ def save_jsonl(data: List[Dict[str, Any]], filename: str) -> None:
         for item in data:
             f.write(json.dumps(item) + "\n")
     print(f"✅ Saved {filename}")
+    
+def generate_metadata_file(toc_entries: List[Dict[str, Any]]):
+    """Generates a metadata file with document information."""
+    
+    # Check if toc_entries is not empty before proceeding
+    if not toc_entries:
+        print("⚠️ No TOC entries provided. Cannot generate metadata file.")
+        return
+
+    first_entry = toc_entries[0]
+    doc_title = first_entry.get("doc_title", "Unknown Document")
+    
+    metadata = {
+        "doc_title": doc_title,
+        "date_processed": datetime.now().isoformat(),
+        "total_sections": len(toc_entries),
+        "source_file": PDF_PATH,
+        "processing_script_version": "1.0.0"
+    }
+
+    metadata_list = [metadata]
+    save_jsonl(metadata_list, "usb_pd_metadata.jsonl")
 
 def main() -> None:
     """Main execution flow to orchestrate the PDF parsing process."""
@@ -282,11 +304,14 @@ def main() -> None:
         # Parse document sections
         parsed_sections = parse_document_sections(text_pages, toc_entries)
         
-        # Save outputs
-        save_jsonl(toc_entries, "usb_pd_toc_fixed.jsonl")
-        save_jsonl(parsed_sections, "usb_pd_spec_fixed.jsonl")
+        # Save outputs with the correct filenames
+        save_jsonl(toc_entries, "usb_pd_toc.jsonl")
+        save_jsonl(parsed_sections, "usb_pd_spec.jsonl")
         
-        # Generate validation report
+        # Generate metadata file as requested in the email
+        generate_metadata_file(toc_entries)
+        
+        # Generate validation report with the correct filename
         generate_validation_report(toc_entries, parsed_sections)
         
     except Exception as e:
