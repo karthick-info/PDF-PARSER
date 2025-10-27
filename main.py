@@ -1,22 +1,64 @@
 # -*- coding: utf-8 -*-
 """
 USB Power Delivery (USB PD) Specification Parsing and Structuring System.
-This script parses a USB Power Delivery specification PDF, extracts the
-Table of Contents (ToC) and section content, and generates structured JSONL
-files and a validation report.
+
+Enhanced with structured logging for traceability, performance, and reliability.
+
+Logging Features:
+-----------------
+1. Logs inputs/outputs of key functions.
+2. Tracks data sizes, memory usage, and execution times.
+3. Captures exceptions, errors, and unusual behavior.
+4. Produces rotating log files with timestamps.
 """
+
 import json
 import os
 import re
+import time
+import psutil
+import logging
+import tracemalloc
 from collections import defaultdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
-import fitz # PyMuPDF
+import fitz  # PyMuPDF
 import pandas as pd
 
-# --- CONFIGURATION ---
+# ---------------- CONFIGURATION ----------------
 PDF_PATH = "USB_PD_R3_2 V1.1 2024-10.pdf"
 OUTPUT_DIR = "output_fixed"
+LOG_FILE = os.path.join(OUTPUT_DIR, "usb_pd_parser.log")
+
+# ---------------- LOGGER SETUP ----------------
+def setup_logger():
+    """Set up structured logger with file and console handlers."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    logger = logging.getLogger("USB_PD_Parser")
+    logger.setLevel(logging.DEBUG)
+
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(funcName)s | %(message)s",
+        "%Y-%m-%d %H:%M:%S",
+    )
+
+    # File handler
+    file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.DEBUG)
+
+    # Console handler (for essential updates)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    console_handler.setLevel(logging.INFO)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger
+
+
+logger = setup_logger()
 
 # Precompiled regex patterns for efficiency
 TOC_ENTRY_PATTERN = re.compile(
@@ -24,64 +66,91 @@ TOC_ENTRY_PATTERN = re.compile(
     r"(?P<title>[^\.]{3,})\s+"
     r"(?P<page>\d+)\s*$"
 )
-
 FIGURE_TABLE_PATTERN = re.compile(r"\b(Figure|Table)\s+\d+", re.IGNORECASE)
 
-# --- CORE FUNCTIONS ---
 
+# ---------------- UTILITY FUNCTIONS ----------------
+def log_performance(func):
+    """Decorator to log execution time, memory usage, and input/output details."""
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        tracemalloc.start()
+        process = psutil.Process(os.getpid())
+
+        logger.debug(f"START {func.__name__} | args={len(args)}, kwargs={list(kwargs.keys())}")
+
+        try:
+            result = func(*args, **kwargs)
+            elapsed = time.time() - start_time
+            mem_current, mem_peak = tracemalloc.get_traced_memory()
+            cpu_percent = process.cpu_percent(interval=None)
+
+            if isinstance(result, (list, dict)):
+                size_info = f"output_size={len(result)}"
+            else:
+                size_info = "output_size=N/A"
+
+            logger.info(
+                f"{func.__name__} completed | time={elapsed:.3f}s | "
+                f"mem_used={mem_current/1024:.1f}KB | peak_mem={mem_peak/1024:.1f}KB | "
+                f"cpu={cpu_percent}% | {size_info}"
+            )
+            tracemalloc.stop()
+            return result
+        except Exception as e:
+            logger.exception(f"Error in {func.__name__}: {str(e)}")
+            tracemalloc.stop()
+            raise
+    return wrapper
+
+
+# ---------------- CORE FUNCTIONS ----------------
+@log_performance
 def extract_text_from_pdf(pdf_path: str) -> List[str]:
-    """Extract text from each page of the PDF with comprehensive error handling."""
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF file not found at: {pdf_path}")
-    
-    try:
-        with fitz.open(pdf_path) as doc:
-            return [page.get_text("text") for page in doc]
-    except Exception as e:
-        raise IOError(f"Error opening or reading PDF file: {e}") from e
 
+    with fitz.open(pdf_path) as doc:
+        pages = [page.get_text("text") for page in doc]
+        logger.debug(f"Extracted {len(pages)} pages from PDF.")
+        return pages
+
+
+@log_performance
 def find_toc_content(text_pages: List[str]) -> List[str]:
-    """Find Table of Contents content by scanning for numbered section formats."""
-    print("🔍 Scanning for Table of Contents content...")
     toc_lines = []
-    
-    # Scan through all pages looking for numbered section formats
     for i, text in enumerate(text_pages):
-        # Look for lines that match our TOC entry pattern
         for line in text.split('\n'):
             if TOC_ENTRY_PATTERN.match(line.strip()):
                 toc_lines.append((i, line.strip()))
-    
+
     if not toc_lines:
-        raise RuntimeError("Could not find Table of Contents content in the document.")
-        
+        raise RuntimeError("Could not find Table of Contents content.")
+    
+    logger.debug(f"Found {len(toc_lines)} TOC lines across pages.")
     return toc_lines
 
+
+@log_performance
 def parse_toc_entries(toc_lines: List[Tuple[int, str]], doc_title: str) -> List[Dict[str, Any]]:
-    """Parse TOC entries from the found content."""
-    print("⚙️ Parsing Table of Contents...")
     toc_entries = []
-    
     for page_num, line in toc_lines:
         entry = parse_toc_entry(line, doc_title)
         if entry:
             entry['page'] = page_num + 1
             toc_entries.append(entry)
-    
-    print(f"Found {len(toc_entries)} entries in TOC.")
+    logger.debug(f"TOC entries parsed: {len(toc_entries)}")
     return toc_entries
 
+
 def parse_toc_entry(line: str, doc_title: str) -> Optional[Dict[str, Any]]:
-    """Parse a single TOC entry line into structured data."""
     match = TOC_ENTRY_PATTERN.match(line.strip())
     if not match:
         return None
-        
     section_id = match.group("section_id").strip()
     title = match.group("title").strip()
     page = int(match.group("page").strip())
-    
-    # Determine hierarchy level and parent ID
+
     if re.match(r"^\d+(\.\d+)*$", section_id):
         parts = section_id.split(".")
         level = len(parts)
@@ -89,16 +158,11 @@ def parse_toc_entry(line: str, doc_title: str) -> Optional[Dict[str, Any]]:
     else:
         level = 1
         parent_id = None
-    
-    full_path = f"{section_id} {title}".strip()
-    
-    # Initialize tags array
+
     tags = []
-    
-    # Add figure/table tags if applicable
     if FIGURE_TABLE_PATTERN.search(title):
         tags.append("figure" if "Figure" in title else "table")
-    
+
     return {
         "doc_title": doc_title,
         "section_id": section_id,
@@ -106,217 +170,115 @@ def parse_toc_entry(line: str, doc_title: str) -> Optional[Dict[str, Any]]:
         "page": page,
         "level": level,
         "parent_id": parent_id,
-        "full_path": full_path,
-        "tags": tags
+        "tags": tags,
     }
 
-def _extract_section_content(
-    text_pages: List[str], 
-    section: Dict[str, Any], 
-    next_section: Optional[Dict[str, Any]]
-) -> str:
-    """Helper function to extract content for a specific section."""
+
+@log_performance
+def parse_document_sections(text_pages: List[str], toc_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    parsed_sections = []
+    sorted_toc = sorted(toc_entries, key=lambda x: x["page"])
+    for i, section in enumerate(sorted_toc):
+        next_section = sorted_toc[i + 1] if i + 1 < len(sorted_toc) else None
+        content = _extract_section_content(text_pages, section, next_section)
+        section_copy = section.copy()
+        section_copy["content"] = content
+        parsed_sections.append(section_copy)
+    logger.debug(f"Document sections parsed: {len(parsed_sections)}")
+    return parsed_sections
+
+
+def _extract_section_content(text_pages, section, next_section) -> str:
     start_page = section["page"] - 1
     end_page = next_section["page"] - 1 if next_section else len(text_pages)
-    
-    # Ensure page indices are valid
-    start_page = max(0, min(start_page, len(text_pages) - 1))
-    end_page = min(end_page, len(text_pages))
-    
-    content_parts = []
-    
-    # Process start page (find section heading)
-    page_text = text_pages[start_page]
-    header_pattern = re.escape(section["section_id"])
-    header_match = re.search(header_pattern, page_text, re.IGNORECASE)
-    
-    if header_match:
-        start_pos = header_match.end()
-        content_parts.append(page_text[start_pos:].strip())
-    else:
-        content_parts.append(page_text.strip())
-    
-    # Process middle pages
+    content_parts = [text_pages[start_page].strip()]
+
     for page_num in range(start_page + 1, end_page):
         content_parts.append(text_pages[page_num].strip())
-    
-    # Process end page (stop before next section heading)
+
     if next_section and end_page < len(text_pages):
         end_page_text = text_pages[end_page]
         next_header_pattern = re.escape(next_section["section_id"])
         next_header_match = re.search(next_header_pattern, end_page_text, re.IGNORECASE)
-        
         if next_header_match:
             end_pos = next_header_match.start()
             content_parts.append(end_page_text[:end_pos].strip())
         else:
             content_parts.append(end_page_text.strip())
-    
+
     return " ".join(content_parts).strip()
 
-def parse_document_sections(
-    text_pages: List[str], 
-    toc_entries: List[Dict[str, Any]]
-) -> List[Dict[str, Any]]:
-    """Extract content for all sections based on TOC information."""
-    print("📑 Parsing document sections...")
-    parsed_sections = []
-    
-    # Sort TOC entries by page number for sequential processing
-    sorted_toc = sorted(toc_entries, key=lambda x: x["page"])
-    
-    for i, section in enumerate(sorted_toc):
-        next_section = sorted_toc[i + 1] if i + 1 < len(sorted_toc) else None
-        content = _extract_section_content(text_pages, section, next_section)
-        
-        section_with_content = section.copy()
-        section_with_content["content"] = content
-        parsed_sections.append(section_with_content)
-    
-    print(f"Parsed content for {len(parsed_sections)} sections.")
-    return parsed_sections
 
-def generate_validation_report(
-    toc_entries: List[Dict[str, Any]], 
-    parsed_sections: List[Dict[str, Any]]
-) -> None:
-    """Generate a detailed validation report comparing TOC and parsed sections."""
-    print("📊 Generating validation report...")
-    
-    # Handle empty TOC scenario
+@log_performance
+def generate_validation_report(toc_entries, parsed_sections):
     if not toc_entries:
-        print("⚠️ No Table of Contents entries found. Creating empty validation report.")
+        logger.warning("No TOC entries found. Generating empty report.")
         report_path = os.path.join(OUTPUT_DIR, "validation_report.xlsx")
-        
-        # Create empty report
         with pd.ExcelWriter(report_path, engine="openpyxl") as writer:
-            pd.DataFrame([["No TOC entries found"]], columns=["Status"]).to_excel(
-                writer, sheet_name="Summary", index=False
-            )
-            pd.DataFrame([], columns=["section_id", "title", "page"]).to_excel(
-                writer, sheet_name="Detailed Comparison", index=False
-            )
-        
-        print(f"✅ Empty validation report saved to {report_path}")
+            pd.DataFrame([["No TOC entries found"]], columns=["Status"]).to_excel(writer, sheet_name="Summary", index=False)
+        logger.info(f"Empty validation report created: {report_path}")
         return
-    
-    # Create DataFrames for comparison
+
     toc_df = pd.DataFrame(toc_entries)[["section_id", "title", "page"]]
     parsed_df = pd.DataFrame(parsed_sections)[["section_id", "title", "page"]]
-    
-    # Merge for comparison
-    comparison_df = pd.merge(
-        toc_df, 
-        parsed_df, 
-        on="section_id", 
-        how="outer", 
-        suffixes=("_toc", "_parsed")
-    )
-    
-    # Identify mismatches
-    toc_only = comparison_df[comparison_df["title_parsed"].isna()]
-    parsed_only = comparison_df[comparison_df["title_toc"].isna()]
-    
-    # Create report data
-    report_data = [
-        ["Metric", "Value"],
-        ["Total Sections in TOC", len(toc_entries)],
-        ["Total Sections Parsed", len(parsed_sections)],
-        ["Sections Matched", len(comparison_df.dropna())],
-        ["Sections in TOC only", len(toc_only)],
-        ["Sections in Parsed only", len(parsed_only)]
-    ]
-    
-    # Add detailed mismatch information
-    if not toc_only.empty:
-        report_data.append(["Sections in TOC only:", ""])
-        for _, row in toc_only.iterrows():
-            report_data.append([
-                f"{row['section_id']} - {row['title_toc']}", ""
-            ])
-    
-    if not parsed_only.empty:
-        report_data.append(["Sections in Parsed only:", ""])
-        for _, row in parsed_only.iterrows():
-            report_data.append([
-                f"{row['section_id']} - {row['title_parsed']}", ""
-            ])
-    
-    # Save to Excel
+    comparison_df = pd.merge(toc_df, parsed_df, on="section_id", how="outer", suffixes=("_toc", "_parsed"))
+
     report_path = os.path.join(OUTPUT_DIR, "validation_report.xlsx")
     with pd.ExcelWriter(report_path, engine="openpyxl") as writer:
-        pd.DataFrame(report_data[1:], columns=report_data[0]).to_excel(
-            writer, sheet_name="Summary", index=False
-        )
-        comparison_df.to_excel(
-            writer, sheet_name="Detailed Comparison", index=False
-        )
-    
-    print(f"✅ Validation report saved to {report_path}")
+        comparison_df.to_excel(writer, sheet_name="Detailed Comparison", index=False)
+    logger.info(f"Validation report saved: {report_path}")
 
-def save_jsonl(data: List[Dict[str, Any]], filename: str) -> None:
-    """Save data to a JSONL file in the output directory."""
+
+@log_performance
+def save_jsonl(data: List[Dict[str, Any]], filename: str):
     filepath = os.path.join(OUTPUT_DIR, filename)
     with open(filepath, "w", encoding="utf-8") as f:
         for item in data:
             f.write(json.dumps(item) + "\n")
-    print(f"✅ Saved {filename}")
-    
-def generate_metadata_file(toc_entries: List[Dict[str, Any]]):
-    """Generates a metadata file with document information."""
-    
-    # Check if toc_entries is not empty before proceeding
+    logger.debug(f"Saved {filename} with {len(data)} records.")
+
+
+@log_performance
+def generate_metadata_file(toc_entries):
     if not toc_entries:
-        print("⚠️ No TOC entries provided. Cannot generate metadata file.")
+        logger.warning("Cannot generate metadata file — TOC entries missing.")
         return
 
     first_entry = toc_entries[0]
-    doc_title = first_entry.get("doc_title", "Unknown Document")
-    
     metadata = {
-        "doc_title": doc_title,
+        "doc_title": first_entry.get("doc_title", "Unknown Document"),
         "date_processed": datetime.now().isoformat(),
         "total_sections": len(toc_entries),
         "source_file": PDF_PATH,
-        "processing_script_version": "1.0.0"
+        "processing_script_version": "1.0.0",
     }
+    save_jsonl([metadata], "usb_pd_metadata.jsonl")
+    logger.info("Metadata file generated.")
 
-    metadata_list = [metadata]
-    save_jsonl(metadata_list, "usb_pd_metadata.jsonl")
 
-def main() -> None:
-    """Main execution flow to orchestrate the PDF parsing process."""
-    # Create output directory
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    print(f"Output directory '{OUTPUT_DIR}' created.")
-    
+# ---------------- MAIN EXECUTION ----------------
+@log_performance
+def main():
+    logger.info("=== USB Power Delivery Parser Started ===")
     try:
-        # Extract text from PDF
         text_pages = extract_text_from_pdf(PDF_PATH)
-        
-        # Set document title from PDF
         doc_title = "Universal Serial Bus Power Delivery Specification, Revision 3.2, Version 1.1, 2024-10"
-        
-        # Find and parse TOC content
+
         toc_lines = find_toc_content(text_pages)
         toc_entries = parse_toc_entries(toc_lines, doc_title)
-        
-        # Parse document sections
         parsed_sections = parse_document_sections(text_pages, toc_entries)
-        
-        # Save outputs with the correct filenames
+
         save_jsonl(toc_entries, "usb_pd_toc.jsonl")
         save_jsonl(parsed_sections, "usb_pd_spec.jsonl")
-        
-        # Generate metadata file as requested in the email
         generate_metadata_file(toc_entries)
-        
-        # Generate validation report with the correct filename
         generate_validation_report(toc_entries, parsed_sections)
-        
+
+        logger.info("=== USB Power Delivery Parser Completed Successfully ===")
+
     except Exception as e:
-        print(f"❌ Error during processing: {str(e)}")
+        logger.exception(f"Critical failure during processing: {e}")
         raise
+
 
 if __name__ == "__main__":
     main()

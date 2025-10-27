@@ -1,0 +1,31 @@
+2025-10-22 13:07:39 | DEBUG | wrapper | START main | args=0, kwargs=[]
+2025-10-22 13:07:39 | INFO | main | === USB Power Delivery Parser Started ===
+2025-10-22 13:07:39 | DEBUG | wrapper | START extract_text_from_pdf | args=1, kwargs=[]
+2025-10-22 13:07:46 | DEBUG | extract_text_from_pdf | Extracted 1047 pages from PDF.
+2025-10-22 13:07:46 | INFO | wrapper | extract_text_from_pdf completed | time=7.214s | mem_used=3151.3KB | peak_mem=3158.3KB | cpu=0.0% | output_size=1047
+2025-10-22 13:07:46 | DEBUG | wrapper | START find_toc_content | args=1, kwargs=[]
+2025-10-22 13:07:46 | DEBUG | find_toc_content | Found 133 TOC lines across pages.
+2025-10-22 13:07:46 | INFO | wrapper | find_toc_content completed | time=0.308s | mem_used=16.1KB | peak_mem=29.5KB | cpu=0.0% | output_size=133
+2025-10-22 13:07:46 | DEBUG | wrapper | START parse_toc_entries | args=2, kwargs=[]
+2025-10-22 13:07:46 | DEBUG | parse_toc_entries | TOC entries parsed: 133
+2025-10-22 13:07:46 | INFO | wrapper | parse_toc_entries completed | time=0.005s | mem_used=53.8KB | peak_mem=56.7KB | cpu=0.0% | output_size=133
+2025-10-22 13:07:46 | DEBUG | wrapper | START parse_document_sections | args=2, kwargs=[]
+2025-10-22 13:07:46 | DEBUG | parse_document_sections | Document sections parsed: 133
+2025-10-22 13:07:46 | INFO | wrapper | parse_document_sections completed | time=0.021s | mem_used=4556.0KB | peak_mem=4750.3KB | cpu=0.0% | output_size=133
+2025-10-22 13:07:46 | DEBUG | wrapper | START save_jsonl | args=2, kwargs=[]
+2025-10-22 13:07:46 | DEBUG | save_jsonl | Saved usb_pd_toc.jsonl with 133 records.
+2025-10-22 13:07:46 | INFO | wrapper | save_jsonl completed | time=0.008s | mem_used=1.2KB | peak_mem=28.6KB | cpu=0.0% | output_size=N/A
+2025-10-22 13:07:46 | DEBUG | wrapper | START save_jsonl | args=2, kwargs=[]
+2025-10-22 13:07:46 | DEBUG | save_jsonl | Saved usb_pd_spec.jsonl with 133 records.
+2025-10-22 13:07:46 | INFO | wrapper | save_jsonl completed | time=0.025s | mem_used=1.0KB | peak_mem=2124.4KB | cpu=0.0% | output_size=N/A
+2025-10-22 13:07:46 | DEBUG | wrapper | START generate_metadata_file | args=1, kwargs=[]
+2025-10-22 13:07:46 | DEBUG | wrapper | START save_jsonl | args=2, kwargs=[]
+2025-10-22 13:07:46 | DEBUG | save_jsonl | Saved usb_pd_metadata.jsonl with 1 records.
+2025-10-22 13:07:46 | INFO | wrapper | save_jsonl completed | time=0.002s | mem_used=2.2KB | peak_mem=12.1KB | cpu=0.0% | output_size=N/A
+2025-10-22 13:07:46 | INFO | generate_metadata_file | Metadata file generated.
+2025-10-22 13:07:46 | INFO | wrapper | generate_metadata_file completed | time=0.003s | mem_used=0.0KB | peak_mem=0.0KB | cpu=0.0% | output_size=N/A
+2025-10-22 13:07:46 | DEBUG | wrapper | START generate_validation_report | args=2, kwargs=[]
+2025-10-22 13:07:48 | INFO | generate_validation_report | Validation report saved: output_fixed\validation_report.xlsx
+2025-10-22 13:07:48 | INFO | wrapper | generate_validation_report completed | time=1.679s | mem_used=6598.9KB | peak_mem=7144.8KB | cpu=0.0% | output_size=N/A
+2025-10-22 13:07:48 | INFO | main | === USB Power Delivery Parser Completed Successfully ===
+2025-10-22 13:07:48 | INFO | wrapper | main completed | time=9.296s | mem_used=0.0KB | peak_mem=0.0KB | cpu=0.0% | output_size=N/A
