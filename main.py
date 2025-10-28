@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import fitz  # PyMuPDF
 import pandas as pd
 
-# ---------------- CONFIGURATION ----------------
+# ---------------- CONFIGURATION SETUP ----------------
 PDF_PATH = "USB_PD_R3_2 V1.1 2024-10.pdf"
 OUTPUT_DIR = "output_fixed"
 LOG_FILE = os.path.join(OUTPUT_DIR, "usb_pd_parser.log")
